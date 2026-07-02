@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+<title>I Love You ♥️</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@1,500&family=Poppins:wght@600&display=swap');
+
+  :root {
+    /* [FIX] O coração nunca vai passar disso. Ajusta sozinho. */
+    --max-size: min(92vw, 92dvh, 680px); 
+  }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+  html, body {
+    height: 100dvh; /* dvh = altura real visível */
+    width: 100dvw;  /* dvw = largura real visível */
+    background: radial-gradient(ellipse at center, #1a1a1a 0%, #060606 75%);
+    display: grid;
+    place-items: center; /* centraliza sem esticar */
+    overflow: hidden;
+    /* [FIX] Respeita notch e barras do sistema */
+    padding: 
+      max(12px, env(safe-area-inset-top)) 
+      max(12px, env(safe-area-inset-right)) 
+      max(12px, env(safe-area-inset-bottom)) 
+      max(12px, env(safe-area-inset-left));
+  }
+
+  #wrap {
+    position: relative;
+    width: var(--max-size);
+    /* [FIX] Mantém proporção do canvas. 1.02 = altura do coração */
+    aspect-ratio: 1 / 1.02; 
+    animation: beat 1.15s ease-in-out infinite;
+    will-change: transform;
+  }
+  @keyframes beat {
+    0%, 100% { transform: scale(1); }
+    14%      { transform: scale(1.045); }
+    28%      { transform: scale(1); }
+    42%      { transform: scale(1.02); }
+    70%      { transform: scale(1); }
+  }
+
+  canvas { 
+    width: 100%;
+    height: 100%;
+    display: block; 
+    touch-action: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    #wrap { animation: none; }
+  }
+
+  #hint {
+    position: absolute;
+    bottom: -28px; /* fica fora do coração, nunca por cima */
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255,255,255,0.45);
+    font: 500 12px/1 'Poppins', sans-serif;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+
+<div id="wrap">
+  <canvas id="heart"></canvas>
+  <div id="hint">Toque para pausar</div>
+</div>
+
+<script>
+const WORD  = 'i love you ';
+const CENTER_TEXT = 'I LOVE YOU!';
+
+const canvas = document.getElementById('heart');
+const ctx = canvas.getContext('2d');
+const wrap = document.getElementById('wrap');
+
+let rafId = null;
+let paused = false;
+
+function setupCanvas() {
+  // Pega o tamanho real do #wrap depois do CSS calcular
+  const rect = wrap.getBoundingClientRect();
+  const CSS_SIZE = rect.width; // largura = base do cálculo
+  const dpr = Math.min(Math.max(1, window.devicePixelRatio || 1), 2);
+
+  canvas.width  = Math.round(CSS_SIZE * dpr);
+  canvas.height = Math.round(CSS_SIZE * 1.02 * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  return { CSS_SIZE };
+}
+
+function init() {
+  const { CSS_SIZE } = setupCanvas();
+  const cx = CSS_SIZE / 2;
+  const cy = CSS_SIZE / 2 - CSS_SIZE * 0.02;
+  const scale = CSS_SIZE / 34;
+
+  function heartPoint(t) {
+    const x = 16 * Math.pow(Math.sin(t), 3);
+    const y = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
+    return { x, y };
+  }
+
+  const FONT_SIZE = Math.max(CSS_SIZE * 0.026, 10);
+  ctx.font = `600 ${FONT_SIZE}px 'Poppins', sans-serif`;
+  const ww = ctx.measureText(WORD).width;
+
+  const N = 600;
+  const base = [];
+  for (let i = 0; i <= N; i++) {
+    const t = (i / N) * Math.PI * 2;
+    const p = heartPoint(t);
+    base.push({ x: p.x * scale, y: p.y * scale });
+  }
+  const cum = [0];
+  for (let i = 1; i < base.length; i++) {
+    cum.push(cum[i - 1] + Math.hypot(base[i].x - base[i-1].x, base[i].y - base[i-1].y));
+  }
+  const total = cum[cum.length - 1];
+
+  function pointAtArc(s) {
+    s = ((s % total) + total) % total;
+    let lo = 0, hi = cum.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (cum[mid] < s) lo = mid + 1; else hi = mid;
+    }
+    return base[lo];
+  }
+
+  const RINGS = [
+    { factor: 0.955, phase: 0.0,  alpha: 0.85 },
+    { factor: 1.0,   phase: 0.34, alpha: 1.0  },
+    { factor: 1.045, phase: 0.68, alpha: 0.85 },
+  ];
+
+  const step = ww * 0.95;
+  const countPerRing = Math.max(Math.floor(total / step), 16);
+
+  const words = [];
+  RINGS.forEach((ring) => {
+    for (let i = 0; i < countPerRing; i++) {
+      const s = (i / countPerRing) * total + ring.phase * step;
+      const pt = pointAtArc(s);
+      words.push({ x: cx + pt.x * ring.factor, y: cy + pt.y * ring.factor, alpha: ring.alpha, order: i / countPerRing });
+    }
+  });
+
+  const mask = document.createElement('canvas');
+  mask.width = CSS_SIZE;
+  mask.height = CSS_SIZE * 1.02;
+  const mctx = mask.getContext('2d');
+  mctx.beginPath();
+  for (let i = 0; i <= Math.PI * 2; i += 0.03) {
+    const p = heartPoint(i);
+    const px = cx + p.x * scale;
+    const py = cy + p.y * scale;
+    i === 0 ? mctx.moveTo(px, py) : mctx.lineTo(px, py);
+  }
+  mctx.closePath();
+  mctx.fillStyle = '#fff';
+  mctx.fill();
+  const maskData = mctx.getImageData(0, 0, mask.width, mask.height);
+  
+  const insideHeart = (px, py) => {
+    const ix = Math.round(px), iy = Math.round(py);
+    if (ix < 0 || iy < 0 || ix >= mask.width || iy >= mask.height) return false;
+    return maskData.data[(iy * mask.width + ix) * 4 + 3] > 128;
+  };
+
+  const fillWords = [];
+  const gapX = ww * 0.8;
+  const gapY = FONT_SIZE * 1.9;
+  for (let y = FONT_SIZE; y < CSS_SIZE * 1.02 - FONT_SIZE; y += gapY) {
+    for (let x = 0; x < CSS_SIZE; x += gapX) {
+      const jx = x + (Math.random() - 0.5) * gapX * 0.5;
+      const jy = y + (Math.random() - 0.5) * gapY * 0.5;
+      if (insideHeart(jx, jy)) {
+        fillWords.push({ x: jx, y: jy, alpha: 0.5 + Math.random() * 0.2, order: Math.random(), isFill: true });
+      }
+    }
+  }
+
+  const allWords = words.concat(fillWords).sort((a, b) => a.order - b.order);
+  const SWEEP_MS = 2200, HOLD_MS = 2400, FADEOUT_MS = 600, CYCLE_MS = SWEEP_MS + HOLD_MS + FADEOUT_MS;
+  allWords.forEach((w, i) => { w.appearAt = (i / allWords.length) * SWEEP_MS; });
+
+  const t0 = performance.now();
+
+  function draw(now) {
+    if (paused) return;
+    ctx.clearRect(0, 0, CSS_SIZE, CSS_SIZE * 1.02);
+    ctx.font = `600 ${FONT_SIZE}px 'Poppins', sans-serif`;
+    ctx.textBaseline = 'middle';
+
+    const cycleTime = (now - t0) % CYCLE_MS;
+    const fadeOutAmt = cycleTime > SWEEP_MS + HOLD_MS 
+      ? 1 - Math.min((cycleTime - SWEEP_MS - HOLD_MS) / FADEOUT_MS, 1) 
+      : 1;
+
+    for (const w of allWords) {
+      const localElapsed = cycleTime - w.appearAt;
+      if (localElapsed < 0) continue;
+      const a = Math.min(localElapsed / 220, 1) * w.alpha * fadeOutAmt * (0.88 + 0.12 * Math.sin(now / 260 + w.x * 0.3 + w.y * 0.3));
+
+      ctx.save();
+      ctx.translate(w.x, w.y);
+      ctx.globalAlpha = a;
+      ctx.shadowColor = w.isFill ? 'rgba(255,60,60,0.5)' : 'rgba(255,40,50,0.9)';
+      ctx.shadowBlur  = w.isFill ? 5 : 12;
+      ctx.fillStyle   = w.isFill ? '#ff6a6a' : '#ff3b3b';
+      ctx.textAlign   = 'center';
+      ctx.fillText(WORD, 0, 0);
+      ctx.restore();
+    }
+
+    if (cycleTime > SWEEP_MS && cycleTime < SWEEP_MS + HOLD_MS) {
+      const centerAlpha = Math.min((cycleTime - SWEEP_MS) / 400, 1) * fadeOutAmt;
+      ctx.save();
+      ctx.globalAlpha = centerAlpha;
+      ctx.font = `italic 700 ${FONT_SIZE * 1.7}px 'Playfair Display', serif`;
+      ctx.fillStyle = '#fff';
+      ctx.shadowColor = 'rgba(255,80,80,0.8)';
+      ctx.shadowBlur = 18;
+      ctx.textAlign = 'center';
+      ctx.fillText(CENTER_TEXT, cx, cy);
+      ctx.restore();
+    }
+
+    rafId = requestAnimationFrame(draw);
+  }
+  
+  cancelAnimationFrame(rafId);
+  draw(performance.now());
+}
+
+function boot() {
+  document.fonts?.ready ? document.fonts.ready.then(init).catch(init) : init();
+}
+
+boot();
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(boot, 150);
+});
+
+canvas.addEventListener('click', () => {
+  paused = !paused;
+  document.getElementById('hint').textContent = paused ? 'Toque para retomar' : 'Toque para pausar';
+  if (!paused) init();
+});
+
+</script>
+</body>
+</html>
